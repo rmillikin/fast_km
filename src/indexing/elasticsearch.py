@@ -9,14 +9,18 @@ index='pubmed_abstracts'
 class ElasticSearcher():
     def __init__(self) -> None:
         '''Initializes the elasticsearch server connection'''
-        self.client = Elasticsearch([{'host': host, 'port': port}])
+        self.client = Elasticsearch("http://{}:{}".format(host, port))
         self.s = Search(using=self.client, index=index)
 
         # create the index if it doesn't exist
         if not self.client.indices.exists(index=index):
             self.client.indices.create(index=index, ignore=400)
     
-    def get(self, query: str) -> 'list[int]':
+    def get(self, pmid: int) -> dict:
+        '''Returns the abstract with the given PMID from the elasticsearch server'''
+        return self.client.get(index=index, id=pmid)['_source']
+    
+    def search(self, query: str) -> 'list[int]':
         '''Searches the elasticsearch server for the given query'''
 
         # search the 'title' and 'text' fields for the query

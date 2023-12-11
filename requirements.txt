@@ -9,7 +9,7 @@ regex==2021.10.8
 requests==2.26.0
 rq==1.10.0
 rq-dashboard==0.6.1
-scipy==1.7.1
+scipy
 flask-bcrypt==0.7.1
 pymongo==4.0.1
 Werkzeug==2.0.2

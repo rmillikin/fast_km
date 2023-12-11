@@ -1,5 +1,6 @@
 import ftplib
 import os
+import sys
 import math
 import glob
 from datetime import date
@@ -87,20 +88,21 @@ def bulk_download(ftp_address: str, ftp_dir: str, local_dir: str, n_to_download 
 
     if n_to_download == 0:
         return
+    
+    if n_to_download == math.inf:
+        n_to_download = sys.maxsize
 
     # create local directory if it doesn't exist yet
     if not os.path.exists(local_dir):
         os.mkdir(local_dir)
 
-    remote_files_to_get = ['temp']
+    # get list of files to download
+    remote_files_to_get = list_files_to_download(ftp_address, ftp_dir, local_dir)[:n_to_download]
+    files_remaining_to_get = remote_files_to_get.copy()
     n_downloaded = 0
 
-    while remote_files_to_get and n_downloaded < n_to_download:
-        # get list of files to download
-        remote_files_to_get = list_files_to_download(ftp_address, ftp_dir, 
-            local_dir)
-
-        print('INFO: Need to download ' + str(len(remote_files_to_get)) + ' files'
+    while files_remaining_to_get:
+        print('INFO: Need to download ' + str(len(files_remaining_to_get)) + ' files'
             + ' from ' + ftp_address + '/' + ftp_dir)
 
         # delete any *.xml.gz* file from previous years
@@ -118,15 +120,13 @@ def bulk_download(ftp_address: str, ftp_dir: str, local_dir: str, n_to_download 
             # connect to server and navigate to directory to download from
             ftp = connect_to_ftp_server(ftp_address, ftp_dir)
 
-            for remote_filename in remote_files_to_get:
-                if n_downloaded >= n_to_download:
-                    break
-
+            for remote_filename in files_remaining_to_get:
                 local_filepath = path.join(local_dir, remote_filename)
 
                 if not path.exists(local_filepath):
                     download_file(local_dir, remote_filename, ftp)
                     n_downloaded += 1
+                    files_remaining_to_get.remove(remote_filename)
                     util.report_progress(n_downloaded, len(remote_files_to_get))
 
         # handle server disconnections

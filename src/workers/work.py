@@ -15,51 +15,7 @@ import indexing.index as index
 
 _r = Redis(host=km_util.redis_host, port=6379)
 
-def km_work(json: list):
-    _initialize_mongo_caching()
-    knowledge_graphs = connect_to_neo4j()
-
-    return_val = []
-
-    if len(json) > 1000000000:
-        raise ValueError('Must be <=1000000000 queries')
-
-    for item in json:
-        a_term = item['a_term']
-        b_term = item['b_term']
-
-        censor_year = _get_censor_year(item)
-
-        if a_term is None or b_term is None:
-            raise TypeError('Must supply a_term and b_term')
-
-        return_pmids = False
-        if 'return_pmids' in item:
-            return_pmids = bool(item['return_pmids'])
-
-        res = km.kinderminer_search(a_term, b_term, li.the_index, censor_year, return_pmids)
-
-        if 'pmid_intersection' in res:
-            res['pmid_intersection'] = str(res['pmid_intersection'])
-
-        # query knowledge graph
-        query_kg = False
-        if 'query_knowledge_graph' in item:
-            query_kg = bool(item['query_knowledge_graph'])
-
-            if query_kg and res['pvalue'] < rel_pvalue_cutoff:
-                res['relationship'] = []
-
-                for kg in knowledge_graphs:
-                    rel = kg.query(a_term, b_term)
-                    res['relationship'].extend(rel)
-
-        return_val.append(res)
-
-    return return_val
-
 def km_work_all_vs_all(json: dict):
-    _initialize_mongo_caching()
     knowledge_graphs = connect_to_neo4j()
 
     return_val = []
@@ -93,37 +49,22 @@ def km_work_all_vs_all(json: dict):
 
     _update_job_status('progress', 0)
 
-    b_term_token_dict = _get_token_dict(b_terms)
-
-    for a_term_n, a_term in enumerate(a_terms):
+    for a_n, a_term in enumerate(a_terms):
         ab_results = []
-        b_term_set = list(b_terms)
 
-        while a_term in b_term_set:
-            b_term_set.remove(a_term)
+        while a_term in b_terms:
+            b_terms.remove(a_term)
 
-        b_term_n = 0
-
-        while b_term_set:
-            b_term = li.the_index.get_highest_priority_term(b_term_set, b_term_token_dict)
-            b_term_set.remove(b_term)
-
+        for b_n, b_term in enumerate(b_terms):
             res = km.kinderminer_search(a_term, b_term, li.the_index, censor_year, return_pmids, top_n_articles, scoring)
 
             if res['pvalue'] <= ab_fet_threshold:
                 ab_results.append(res)
-            else:
-                # RAM efficiency. decache unneeded tokens/terms
-                li.the_index.decache_token(b_term)
-
-            _remove_from_token_dict(b_term, b_term_token_dict)
-
+                
             # report KM progress
             if km_only:
-                progress = _km_progress(a_term_n, b_term_n + 1, len(a_terms), len(b_terms))
+                progress = _km_progress(a_n, b_n + 1, len(a_terms), len(b_terms))
                 _update_job_status('progress', progress)
-
-            b_term_n += 1
 
         # sort by prediction score, descending
         ab_results.sort(key=lambda res: 
@@ -132,29 +73,11 @@ def km_work_all_vs_all(json: dict):
 
         ab_results = ab_results[:top_n + 20]
 
-        # RAM efficiency. decache unneeded tokens/terms
-        b_terms_used = set([ab_res['b_term'] for ab_res in ab_results])
-        c_term_token_dict = _get_token_dict(c_terms)
-
-        _items = list(li.the_index._token_cache.keys())
-        _items.extend(list(li.the_index._query_cache.keys()))
-
-        for token in _items:
-            if token not in b_terms_used:
-                li.the_index.decache_token(token)
-
         # take top N per a-b pair and run b-terms against c-terms
-        c_term_set = list(c_terms)
+        while a_term in c_terms:
+            c_terms.remove(a_term)
 
-        while a_term in c_term_set:
-            c_term_set.remove(a_term)
-
-        c_term_n = 0
-
-        while c_term_set:
-            c_term = li.the_index.get_highest_priority_term(c_term_set, c_term_token_dict)
-            c_term_set.remove(c_term)
-
+        for c_n, c_term in enumerate(c_terms):
             for ab in ab_results:
                 abc_result = {
                         'a_term': ab['a_term'],
@@ -217,13 +140,8 @@ def km_work_all_vs_all(json: dict):
 
             if not km_only:
                 # report SKiM progress - percentage of C-terms complete
-                progress = _skim_progress(a_term_n, b_term_n, c_term_n + 1, len(a_terms), len(b_terms), len(c_terms))
+                progress = _skim_progress(a_n, b_n, c_n + 1, len(a_terms), len(b_terms), len(c_terms))
                 _update_job_status('progress', progress)
-
-                # RAM efficiency. decache unneeded tokens/terms
-                _remove_from_token_dict(c_term, c_term_token_dict)
-
-            c_term_n += 1
 
     if top_n < sys.maxsize:
         # sometimes high prediction score A-B pairs with no B-C pairs will 
@@ -248,7 +166,6 @@ def km_work_all_vs_all(json: dict):
     return return_val
 
 def update_index_work(json: dict):
-    indexing.index._connect_to_mongo()
     if 'n_files' in json:
         n_files = json['n_files']
     else:
@@ -282,75 +199,13 @@ def update_index_work(json: dict):
     index_builder = IndexBuilder(li.pubmed_path)
     index_builder.build_index(overwrite_old=False) # wait to remove old index
 
-    # restart the workers (TODO: except this one)
-    _update_job_status('progress', 0.9000)
-    interrupted_jobs = restart_workers(requeue_interrupted_jobs=False)
-
-    # remove the old index
-    index_builder.overwrite_old_index()
-
-    if clear_cache:
-        clear_mongo_cache([])
-
-    # re-queue interrupted jobs
-    _queue_jobs(interrupted_jobs)
-
     _update_job_status('progress', 1.0000)
-
-def clear_mongo_cache(json):
-    indexing.index._connect_to_mongo()
-    indexing.index._empty_mongo()
-
-def restart_workers(requeue_interrupted_jobs = True):
-    print('INFO: restarting workers...')
-    workers = Worker.all(_r)
-
-    interrupted_jobs = []
-    this_job = get_current_job()
-
-    for worker in workers:
-        # stop any currently-running job
-        job = worker.get_current_job()
-
-        if job and (not this_job or (str(job.id) != str(this_job.id))):
-            print('INFO: canceling job: ' + str(job.id))
-            interrupted_jobs.append(job)
-
-        # TODO: if the worker grabs another job now, it's a problem
-        # TODO: prevent >1 concurrent index jobs?
-
-        # shut down the worker
-        rqc.send_shutdown_command(_r, worker.name)
-
-    if requeue_interrupted_jobs:
-        _queue_jobs(interrupted_jobs)
-
-    return interrupted_jobs
-
-def _initialize_mongo_caching():
-    indexing.index._connect_to_mongo()
-    if li.the_index._check_if_mongo_should_be_refreshed():
-        clear_mongo_cache([])
-
-        # this second call looks weird, but it's to cache the terms_to_check
-        # such as 'fever' to save the current state of the index
-        li.the_index._check_if_mongo_should_be_refreshed()
 
 def connect_to_neo4j() -> 'list[KnowledgeGraph]':
     graphs = []
     for url in km_util.neo4j_host:
         graphs.append(KnowledgeGraph(url))
     return graphs
-
-def _queue_jobs(jobs):
-    for job in jobs:
-        print('INFO: restarting job: ' + str(job))
-        if 'priority' in job:
-            job_priority = job['priority']
-        else:
-            job_priority = km_util.JobPriority.MEDIUM.name
-        _q = Queue(name=job_priority, connection=_r)
-        _q.enqueue_job(job)
 
 def _update_job_status(key, value):
     job = get_current_job()
@@ -395,44 +250,3 @@ def _skim_progress(a_complete: int, b_complete: int, c_complete: int, a_total: i
     # denom = a_total * b_total * c_total
     progress = round(c_complete / c_total, 4)
     return min(progress, 0.9999)
-
-def _get_token_dict(c_terms: 'list[str]'):
-    c_term_token_dict = dict()
-    for c_term in c_terms:
-        subterms = index.get_subterms(c_term)
-
-        for subterm in subterms:
-            # add the tokens
-            c_tokens = km_util.get_tokens(subterm)
-            c_tokens = li.the_index.get_ngrams(c_tokens)
-            for c_token in c_tokens:
-                if c_token not in c_term_token_dict:
-                    c_term_token_dict[c_token] = []
-                c_term_token_dict[c_token].append(c_term)
-
-            # add the subterm
-            if subterm not in c_term_token_dict:
-                c_term_token_dict[subterm] = []
-            c_term_token_dict[subterm].append(c_term)
-    
-    return c_term_token_dict
-
-def _remove_from_token_dict(term: str, token_dict):
-    li.the_index.decache_token(term)
-    subterms = index.get_subterms(term)
-
-    for subterm in subterms:
-        c_tokens = km_util.get_tokens(subterm)
-        c_tokens = li.the_index.get_ngrams(c_tokens)
-        for c_token in c_tokens:
-            query_terms = token_dict[c_token]
-            if term in query_terms:
-                query_terms.remove(term)
-            if not query_terms:
-                li.the_index.decache_token(c_token)
-
-        query_terms = token_dict[subterm]
-        if term in query_terms:
-            query_terms.remove(term)
-        if not query_terms:
-            li.the_index.decache_token(subterm)

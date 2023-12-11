@@ -23,7 +23,6 @@ class Index():
         self._token_cache = dict()
         self._date_censored_query_cache = dict()
         self._n_articles_by_pub_year = dict()
-        _connect_to_mongo()
 
         self._pubmed_dir = pubmed_abstract_dir
         self._bin_path = util.get_index_file(pubmed_abstract_dir)
@@ -358,31 +357,6 @@ class Index():
                 break
         return n
 
-    def _check_if_mongo_should_be_refreshed(self, terms_to_check: 'list[str]' = ['fever']):
-        # the purpose of this function is to check a non-cached version of a token
-        # and compare to a cached version of a token. if the two do not produce
-        # the same result, then the cache is outdated and needs to be cleared.
-
-        # the list of terms to check should contain words that are frequent enough
-        # where we can catch if the cache needs to be updated, but not so frequent
-        # that they add a lot of overhead to every job.
-
-        for item in terms_to_check:
-            query = item.lower().strip()
-            mongo_result = _check_mongo_for_query(query)
-
-            tokens = util.get_tokens(query)
-            result = self._query_disk(tokens)
-
-            if isinstance(mongo_result, type(None)):
-                _place_in_mongo(query, result)
-                continue
-
-            if result != mongo_result:
-                return True
-
-        return False
-
 def sanitize_term(term: str) -> str:
     if logical_or in term or logical_and in term:
         sanitized_subterms = []
@@ -426,55 +400,3 @@ def _intersect_dict_keys(dicts: 'list[dict]') -> None:
                 break
 
     return key_intersect
-
-def _connect_to_mongo() -> None:
-    # TODO: set expiration time for cached items (72h, etc.?)
-    # mongo_cache.create_index('query', unique=True) #expireafterseconds=72 * 60 * 60, 
-    global mongo_cache
-    try:
-        loc = util.mongo_host
-        client = pymongo.MongoClient(loc, 27017, serverSelectionTimeoutMS = 500, connectTimeoutMS = 500)
-        db = client["query_cache_db"]
-        mongo_cache = db["query_cache"]
-        mongo_cache.create_index('query', unique=True)
-    except:
-        print('WARNING: could not find a MongoDB instance to use as a query cache. jobs will complete but may be slower than normal.')
-        mongo_cache = None
-
-def _check_mongo_for_query(query: str) -> bool:
-    if not isinstance(mongo_cache, type(None)):
-        try:
-            result = mongo_cache.find_one({'query': query})
-        except:
-            print('WARNING: non-fatal error in retrieving from mongo. job may complete slower than normal.')
-            return None
-
-        if not isinstance(result, type(None)):
-            return set(result['result'])
-        else:
-            return None
-    else:
-        return None
-
-def _place_in_mongo(query: str, result: 'set[int]') -> None:
-    if not isinstance(mongo_cache, type(None)):
-        try:
-            mongo_cache.insert_one({'query': query, 'result': list(result)})
-        except errors.DuplicateKeyError:
-            # tried to insert and got a duplicate key error. probably just the result
-            # of a race condition (another worker added the query record).
-            # it's fine, just continue on.
-            pass
-        except errors.AutoReconnect:
-            # not sure what this error is. seems to throw occasionally. just ignore it.
-            print('WARNING: non-fatal AutoReconnect error in inserting to mongo. job may complete slower than normal.')
-            pass
-        except errors.DocumentTooLarge:
-            pass
-    else:
-        pass
-
-def _empty_mongo() -> None:
-    if not isinstance(mongo_cache, type(None)):
-        x = mongo_cache.delete_many({})
-        print('INFO: mongodb cache cleared, ' + str(x.deleted_count) + ' items were deleted')

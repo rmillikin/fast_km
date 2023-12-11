@@ -1,11 +1,12 @@
 disallowed = ['\n', '\t', '\r']
 
 class Abstract():
-    def __init__(self, pmid: int, year: int, title: str, text: str):
+    def __init__(self, pmid: int, year: int, title: str, text: str, citation_count: int = 0):
         self.pmid = pmid
         self.pub_year = year
         self.title = title
         self.text = text
+        self.citation_count = citation_count
 
         if not self.title or str.isspace(self.title):
             self.title = ' '
@@ -25,3 +26,12 @@ class Abstract():
                 str_text = str_text.replace(item, '')
 
         return str_pmid + '\t' + str_year + '\t' + str_title + '\t' + str_text
+    
+    def to_dict(self) -> dict:
+        return {
+            'pmid': self.pmid,
+            'pub_year': self.pub_year,
+            'title': self.title,
+            'text': self.text,
+            'citation_count': self.citation_count,
+        }

@@ -1,67 +1,92 @@
+# version: "3.3"
+# services:
+#   server:
+#     build:
+#       context: .
+#       dockerfile: ./src/server/Dockerfile
+#     image: fast_km-server:build
+#     command: --pw ${PASSWORD_HASH}  # edit .env file to change password
+#     ports:
+#       - "5099:5000"  # HOST_PORT:CONTAINER_PORT
+#     depends_on:
+#       - redis
+#     networks:
+#       - fast_km-network
+
+#   workers:
+#     build:
+#       context: .
+#       dockerfile: ./src/workers/Dockerfile
+#     image: fast_km-worker:build
+#     command: --workers 2 --high_priority 1 --medium_priority 0 --low_priority 0 --neo4j_address neo4j_kg:7687,neo4j_semmeddb:7687
+#     volumes:
+#       - ${PUBMED_DIR}:/mnt/pubmed  # edit .env file to change pubmed dir
+#     depends_on:
+#       - redis
+#     networks:
+#       - fast_km-network
+
+#   mongo:
+#     image: mongo
+#     command: --quiet --logpath /dev/null
+#     networks:
+#       - fast_km-network
+
+#   redis:
+#     image: redis:7.0.10
+#     networks:
+#       - fast_km-network
+
+#   neo4j_kg:
+#     image: neo4j:4.4.16
+#     environment:
+#       NEO4J_AUTH: neo4j/mypassword
+#     volumes:
+#       - ${NEO4J_KG_DIR}/data:/data
+#       - ${NEO4J_KG_DIR}/logs:/logs
+#     expose:
+#       - 7474
+#       - 7687
+#     networks:
+#       - fast_km-network
+
+#   neo4j_semmeddb:
+#     image: neo4j:4.4.16
+#     environment:
+#       NEO4J_AUTH: neo4j/mypassword
+#     volumes:
+#       - ${NEO4J_SEMMEDDB_DIR}/data:/data
+#       - ${NEO4J_SEMMEDDB_DIR}/logs:/logs
+#     expose:
+#       - 7474
+#       - 7687
+#     networks:
+#       - fast_km-network
+
+# networks:
+#   fast_km-network:
+
 version: "3.3"
 services:
-  server:
-    build:
-      context: .
-      dockerfile: ./src/server/Dockerfile
-    image: fast_km-server:build
-    command: --pw ${PASSWORD_HASH}  # edit .env file to change password
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    deploy:
+      resources:
+        limits:
+          memory: 6g
+
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms2048m -Xmx2048m  # 2 GB limit
     ports:
-      - "5099:5000"  # HOST_PORT:CONTAINER_PORT
-    depends_on:
-      - redis
-    networks:
-      - fast_km-network
-
-  workers:
-    build:
-      context: .
-      dockerfile: ./src/workers/Dockerfile
-    image: fast_km-worker:build
-    command: --workers 2 --high_priority 1 --medium_priority 0 --low_priority 0 --neo4j_address neo4j_kg:7687,neo4j_semmeddb:7687
+      - 127.0.0.1:9200:9200 #9200:9200  # https://www.elastic.co/guide/en/elasticsearch/reference/7.5/docker.html
     volumes:
-      - ${PUBMED_DIR}:/mnt/pubmed  # edit .env file to change pubmed dir
-    depends_on:
-      - redis
-    networks:
-      - fast_km-network
+      # - ./ElasticSearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - ./ElasticSearch/data:/usr/share/elasticsearch/data
+      - ./ElasticSearch/logs:/usr/share/elasticsearch/logs
 
-  mongo:
-    image: mongo
-    command: --quiet --logpath /dev/null
-    networks:
-      - fast_km-network
-
-  redis:
-    image: redis:7.0.10
-    networks:
-      - fast_km-network
-
-  neo4j_kg:
-    image: neo4j:4.4.16
-    environment:
-      NEO4J_AUTH: neo4j/mypassword
-    volumes:
-      - ${NEO4J_KG_DIR}/data:/data
-      - ${NEO4J_KG_DIR}/logs:/logs
-    expose:
-      - 7474
-      - 7687
-    networks:
-      - fast_km-network
-
-  neo4j_semmeddb:
-    image: neo4j:4.4.16
-    environment:
-      NEO4J_AUTH: neo4j/mypassword
-    volumes:
-      - ${NEO4J_SEMMEDDB_DIR}/data:/data
-      - ${NEO4J_SEMMEDDB_DIR}/logs:/logs
-    expose:
-      - 7474
-      - 7687
-    networks:
-      - fast_km-network
-
-networks:
-  fast_km-network:
+volumes:
+  ElasticSearchData:
+    driver: local

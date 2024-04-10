@@ -1,4 +1,5 @@
 import os
+import sys
 import nltk
 from enum import Enum
 
@@ -24,9 +25,9 @@ def report_progress(completed: float, total: float) -> None:
         round(progress * 100),
         int(completed),
         int(total))
-    #sys.stdout.write(text)
-    #sys.stdout.flush()
-    print(text)
+    sys.stdout.write(text)
+    sys.stdout.flush()
+    # print(text)
 
     if completed == total:
         print("\n")

@@ -53,11 +53,36 @@ def get_worker_queue_names(i, high, med, low):
         return [x.name for x in km_util.JobPriority]
 
 def main():
-    print('INFO: workers waiting 10 sec for redis to set up...')
-    time.sleep(10)
-    li.pubmed_path = '/mnt/pubmed'
+    # print('INFO: workers waiting 10 sec for redis to set up...')
+    # time.sleep(10)
+    # li.pubmed_path = '/mnt/pubmed'
 
-    start_workers()
+    # start_workers()
+    from indexing.elasticsearch import ElasticSearcher
+    li.pubmed_path = '/media/rmillikin/ntfs-data/work_data/pubmed'
+    es = ElasticSearcher('9200', 'localhost')
+    # es.reset()
+
+    # start a timer to measure indexing time
+    start_time = time.perf_counter()
+
+    # index the abstracts
+    es.add_abstracts_in_dir(li.pubmed_path)
+
+    # stop the timer
+    elapsed_in_hours = (time.perf_counter() - start_time) / (60 * 60)
+    print('\n\nINFO: indexing took {} hours'.format(elapsed_in_hours))
+
+    test = es.get(1)
+    print('test abstract:\n\n', test, '\n\n')
+
+    result = es.search('formate')
+    print('formate search has N elements: ', len(result))
+    print('head of search result: ', result[:20])
+
+    # result = es.get_all_pmids()
+    # print('corpus has N elements: ', len(result))
+    
 
 if __name__ == '__main__':
     main()

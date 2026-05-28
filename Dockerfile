@@ -20,7 +20,6 @@ WORKDIR /app
 ## install python package requirements
 RUN pip install --upgrade pip
 RUN pip install -q -r requirements.txt
-RUN pip install htcondor
 
 # install sqlite3, mostly for debugging
 RUN apt-get update && apt-get install -y sqlite3

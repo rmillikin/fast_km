@@ -8,4 +8,4 @@ fastapi[standard]        # web api server
 msgpack                  # safe/fast serialization
 streamlit                # dashboard ui for job monitoring
 apscheduler              # scheduling recurring jobs
-# htcondor               # htcondor job scheduler. only available on linux and requires a running condor server
+starlette >= 1.0.1        # required by FastAPI. version is specified to avoid the BadHost vulnerability
